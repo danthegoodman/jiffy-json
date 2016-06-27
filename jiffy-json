@@ -1,0 +1,211 @@
+#!/usr/bin/env python2.7
+import re
+from collections import OrderedDict
+
+
+def main():
+    import sys
+
+    try:
+        args = parse_arguments(sys.argv[1:])
+    except ArgumentError as e:
+        print("Error: " + e.message)
+        sys.exit(2)
+
+    result = create_base_collection(args)
+
+    try:
+        for a in args:
+            a.fill_result(result)
+        print(build_json_result(result))
+    except JiffyError as e:
+        print("Error: " + e.message)
+        print("Argument: " + e.raw_arg)
+        print("State: " + build_json_result(result))
+        sys.exit(1)
+
+
+def parse_arguments(argv):
+    return [Argument(a) for a in argv]
+
+
+def create_base_collection(args):
+    if len(args):
+        return args[0].path[0].create_collection()
+    else:
+        return OrderedDict()
+
+
+def json_type(target):
+    if target is JsonNull:
+        return "null"
+    if target is True or target is False:
+        return "bool"
+    if isinstance(target, list):
+        return "array"
+    if isinstance(target, dict):
+        return "object"
+    if isinstance(target, (int, float, long)):
+        return "number"
+    if isinstance(target, str):
+        return "string"
+    return type(target)
+
+
+def auto_cast(value):
+    if value == "[]":
+        return []
+    elif value == "{}":
+        return OrderedDict()
+    elif value == "null":
+        return JsonNull
+    elif value == "true":
+        return True
+    elif value == "false":
+        return False
+    elif re.match(r'^\d+$', value):
+        return int(value)
+    elif re.match(r'^[\d.]+$', value):
+        return float(value)
+    else:
+        return value
+
+
+def argument_path_item(raw):
+    arr_match = re.match(r'^\[(\d*)\]$', raw)
+    if arr_match:
+        return ArgPathArrayItem(arr_match.group(1))
+    else:
+        return ArgPathObjectItem(raw)
+
+
+def build_json_result(obj):
+    from json import JSONEncoder
+
+    def default(o):
+        if o is JsonNull:
+            return None
+        raise TypeError(repr(o) + " is not JSON serializable")
+
+    encoder = JSONEncoder(separators=(',', ':'), default=default)
+    return encoder.encode(obj)
+
+
+# We use None to track unset values.
+JsonNull = object()
+
+
+class JiffyError(Exception):
+    def __init__(self, message, argument):
+        super(JiffyError, self).__init__(message)
+        self.raw_arg = argument.raw
+
+
+class ArgumentError(Exception):
+    def __init__(self, message):
+        super(ArgumentError, self).__init__(message)
+
+
+class Argument:
+    def __init__(self, raw):
+        if ':' not in raw:
+            raise ArgumentError("unable to parse argument: " + raw)
+
+        key, value = re.split(r'(?<!\\):', raw, 1)
+        key = re.sub(r'([^\\])(\[\d*])', r'\1.\2', key)
+
+        if re.search(r'(?<!\\)\(s\)$', key):
+            key = key[:-3]
+        else:
+            value = auto_cast(value)
+
+        parts = re.split(r'(?<!\\)\.', key)
+        path = [argument_path_item(item) for item in parts]
+
+        self.raw = raw
+        self.path = path
+        self.value = value
+
+    def fill_result(self, result):
+        target = result
+        for ndx, item in enumerate(self.path[:-1]):
+            target = item.next_target(self, target, self.path[ndx + 1])
+
+        item = self.path[-1]
+        item.set_in_result(self, target)
+
+
+class ArgPathArrayItem:
+    def __init__(self, ndx):
+        self.ndx = int(ndx) if ndx else None
+
+    def create_collection(self):
+        return []
+
+    def next_target(self, argument, target, next_item):
+        if json_type(target) != 'array':
+            raise JiffyError("cannot treat {} as array".format(json_type(target)), argument)
+
+        if self.ndx is None:
+            raise JiffyError("push syntax can only be used at end of path", argument)
+
+        while self.ndx >= len(target):
+            target.append(None)
+
+        if target[self.ndx] is None:
+            target[self.ndx] = next_item.create_collection()
+
+        return target[self.ndx]
+
+    def set_in_result(self, argument, target):
+        if json_type(target) != 'array':
+            raise JiffyError("cannot treat {} as array".format(json_type(target)), argument)
+
+        target_ndx = self.ndx
+        if target_ndx is None:
+            target_ndx = len(target)
+
+        while target_ndx >= len(target):
+            target.append(None)
+
+        if target[target_ndx] is not None:
+            raise JiffyError("array index is already set", argument)
+
+        target[target_ndx] = argument.value
+
+    def __repr__(self):
+        return "PathArr({})".format(self.ndx)
+
+
+class ArgPathObjectItem:
+    def __init__(self, key):
+        key = re.sub(r'\\([:\[(.])', r'\1', key)
+
+        self.key = key
+
+    def create_collection(self):
+        return OrderedDict()
+
+    def next_target(self, argument, target, next_item):
+        if json_type(target) != 'object':
+            raise JiffyError("cannot treat {} as object".format(json_type(target)), argument)
+
+        if self.key not in target:
+            target[self.key] = next_item.create_collection()
+
+        return target[self.key]
+
+    def set_in_result(self, argument, target):
+        if json_type(target) != 'object':
+            raise JiffyError("cannot treat {} as object".format(json_type(target)), argument)
+
+        if self.key in target:
+            raise JiffyError("object property is already set", argument)
+        target[self.key] = argument.value
+
+    def __repr__(self):
+        return "PathObj({})".format(self.key)
+
+
+if __name__ == "__main__":
+    main()
