@@ -39,7 +39,7 @@ doPass "string"          '{"a":"hello"}'       'a(s)':hello
 doPass "integer"         '{"foo":"100"}'       'foo(s)':100
 doPass "boolean"         '{"bar":"true"}'      'bar(s)':true
 doPass "null"            '{"cat":"null"}'      'cat(s)':null
-doPass "empty object"    '{"dog":"{}"}'        'dog(s)':null
+doPass "empty object"    '{"dog":"{}"}'        'dog(s)':{}
 
 
 echo "--- Objects ---"
