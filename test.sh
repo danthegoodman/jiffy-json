@@ -43,6 +43,8 @@ doPass "empty object"    '{"dog":"{}"}'        'dog(s)':{}
 
 
 echo "--- Objects ---"
+doPass "simple"                   '{"x":"hello world"}'  x:'hello world'
+doPass "builder"                  '{"x":"hello world"}'  { x:'hello world' }
 doPass "colon in key"             '{"a:b":"x"}'          'a\:b':x
 doPass "dot in key"               '{"a.b":100}'          'a\.b':100
 doPass "array notation in key"    '{"[foo]":"x"}'        [foo]:x
@@ -52,29 +54,41 @@ doPass "(s) in key"               '{"x(s)":100}'         'x\(s)':100
 doPass "empty key"                '{"":"x"}'             :x
 doPass "empty key at path end"    '{"a":{"":"x"}}'       a.:x
 doPass "empty key in path"        '{"a":{"":{"b":"x"}}}' a..b:x
+doPass "empty builder"            '{}'                   { }
 echo
 
 echo "--- Array ---"
-doPass "indexed"               '[1,2,3]'          [0]:1 [1]:2 [2]:3
-doPass "indexed unordered"     '[3,1,2]'          [1]:1 [2]:2 [0]:3
-doPass "indexed with gaps"     '[null,null,"x"]'  [2]:x
+doPass "indexed"               '[1,"a",true]'        [0]:1 [1]:a [2]:true
+doPass "builder"               '[1,"a",true]'        [ 1 a true ]
+doPass "indexed unordered"     '[3,1,2]'             [1]:1 [2]:2 [0]:3
+doPass "indexed with gaps"     '[null,null,"x"]'     [2]:x
+doPass "empty builder"         '[]'                  [ ]
 echo
 
 echo "--- Arrays in Arrays --- "
-doPass "indexed"       '[[1,2],[3,4],[5,6]]'  [0][1]:2 [0][0]:1 [2][0]:5 [2][1]:6 [1][0]:3 [1][1]:4
+doPass "indexed"              '[[1,2],[3,4],[5,6]]'  [0][1]:2 [0][0]:1 [2][0]:5 [2][1]:6 [1][0]:3 [1][1]:4
+doPass "builder"              '[[1,2],[3,4],[5,6]]'  [ [ 1 2 ] [ 3 4 ] [ 5 6 ] ]
+doPass "indexed then builder" '[[1,2],[3,4],[5,6]]'  [0][ 1 2 ] [1][ 3 4 ] [2][ 5 6 ]
+doPass "builder then indexed" '[[1,2],[3,4],[5,6]]'  [ [0]:1 [1]:2 ] [ [0]:3 [1]:4 ] [ [0]:5 [1]:6] ]
 echo
 
 echo "--- Arrays in Objects ---"
 doPass "ordered"           '{"a":[3,2,1]}'      a[0]:3  a[1]:2  a[2]:1
 doPass "unordered"         '{"a":[3,2,1]}'      a[2]:1  a[1]:2  a[0]:3
+doPass "array builder"     '{"a":[3,2,1]}'      a[ 3 2 1 ]
+doPass "object builder"    '{"a":[3,2,1]}'      { a[0]:3  a[1]:2  a[2]:1 }
+doPass "both builders"     '{"a":[3,2,1]}'      { a[ 3 2 1 ] }
 echo
 
 echo "--- Objects in Arrays ---"
-doPass "several layers deep"    '[{"a":1},[{"b":"x"}]]'           [0].a:1  [1][0].b:x
+doPass "several layers deep"    '[{"a":1,"b":2},[{"c":3},{"d":4}]]'           [0].a:1  [0].b:2  [1][0].c:3 [1][1].d:4
+doPass "object builder"         '[{"a":1,"b":2},[{"c":3},{"d":4}]]'           [0]{ a:1 b:2 } [1][0]{ c:3 } [1][1]{ d:4 }
+doPass "both builders, full"    '[{"a":1,"b":2},[{"c":3},{"d":4}]]'           [ { a:1 b:2 } [ { c:3 } { d:4 } ] ]
 echo
 
 echo "--- Objects in Objects ---"
 doPass "several layers deep"    '{"a":{"b1":"x","b2":{"c":2}}}'   a.b1:x a.b2.c:2
+doPass "several builders deep"  '{"a":{"b1":"x","b2":{"c":2}}}'   a{ b1:x b2{ c:2 } }
 echo
 
 echo "--- No Args ---"
@@ -85,12 +99,20 @@ echo "--- Combining multiple concepts ---"
 doPass "Sample 1" \
        '{"a":{"b":[{"c":1,"d":4.3,"e":false},true,"x"],"x":null},"y":["100"],"z":"z"}' \
        a.b[0].c:1  a.b[0].d:4.3  a.b[0].e:false  a.b[1]:true  a.b[2]:x  a.x:null  'y[0](s):100'  z:z
+doPass "Sample 1 with builders" \
+       '{"a":{"b":[{"c":1,"d":4.3,"e":false},true,"x"],"x":null},"y":["100"],"z":"z"}' \
+       a{ b[ { c:1  d:4.3  e:false } true x ] x:null } 'y[0](s):100'  z:z
 echo
 
 #      expected error message                         invalid input
 echo "--- Errors ---"
-doFail "unable to parse argument"                     a
-doFail "unable to parse argument"                     'a\:b'
+doFail "object builder is unclosed"                   {
+doFail "no object builder to close"                   }
+doFail "array builder is unclosed"                    [
+doFail "no array builder to close"                    ]
+doFail "items in an object require a key and value"   a
+doFail "items in an object require a key and value"   'a\:b'
+doFail "items in an array may not have a key"         [ a:1 ]
 doFail "cannot treat array as object"                 a[0]:1  a.x:2
 doFail "cannot treat object as array"                 a.x:2  a[0]:1
 doFail "array index is already set"                   a[0]:1  a[0]:2
