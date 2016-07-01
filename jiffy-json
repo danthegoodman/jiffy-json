@@ -108,10 +108,12 @@ class ArgumentError(Exception):
 
 class Argument:
     def __init__(self, raw):
-        if ':' not in raw:
+        m = re.search(r'(?<!\\):', raw)
+        if not m:
             raise ArgumentError("unable to parse argument: " + raw)
 
-        key, value = re.split(r'(?<!\\):', raw, 1)
+        key = raw[0:m.start()]
+        value = raw[m.start()+1:]
         key = re.sub(r'([^\\])(\[\d*])', r'\1.\2', key)
 
         if re.search(r'(?<!\\)\(s\)$', key):

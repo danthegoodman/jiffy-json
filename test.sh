@@ -90,6 +90,7 @@ echo
 #      expected error message                         invalid input
 echo "--- Errors ---"
 doFail "unable to parse argument"                     a
+doFail "unable to parse argument"                     'a\:b'
 doFail "cannot treat array as object"                 a[0]:1  a.x:2
 doFail "cannot treat object as array"                 a.x:2  a[0]:1
 doFail "array index is already set"                   a[0]:1  a[0]:2
