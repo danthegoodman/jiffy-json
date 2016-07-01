@@ -72,7 +72,7 @@ def auto_cast(value):
 
 
 def argument_path_item(raw):
-    arr_match = re.match(r'^\[(\d*)\]$', raw)
+    arr_match = re.match(r'^\[(\d+)\]$', raw)
     if arr_match:
         return ArgPathArrayItem(arr_match.group(1))
     else:
