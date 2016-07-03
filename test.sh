@@ -45,12 +45,8 @@ doPass "empty object"    '{"dog":"{}"}'        'dog(s)':{}
 echo "--- Objects ---"
 doPass "simple"                   '{"x":"hello world"}'  x:'hello world'
 doPass "builder"                  '{"x":"hello world"}'  { x:'hello world' }
-doPass "colon in key"             '{"a:b":"x"}'          'a\:b':x
-doPass "dot in key"               '{"a.b":100}'          'a\.b':100
 doPass "array notation in key"    '{"[foo]":"x"}'        [foo]:x
 doPass "array notation in key"    '{"[]":"x"}'           []:x
-doPass "bracket without escaping" '{"[0]":"x"}'          '\[0]':x
-doPass "(s) in key"               '{"x(s)":100}'         'x\(s)':100
 doPass "empty key"                '{"":"x"}'             :x
 doPass "empty key at path end"    '{"a":{"":"x"}}'       a.:x
 doPass "empty key in path"        '{"a":{"":{"b":"x"}}}' a..b:x
@@ -95,6 +91,13 @@ echo "--- No Args ---"
 doPass "no args"             '{}'              # literally nothing
 echo
 
+echo "--- Escapes ---"
+doPass "colon in key"             '{"a:b":"x"}'          'a\:b':x
+doPass "dot in key"               '{"a.b":100}'          'a\.b':100
+doPass "escape array"             '{"[0]":"x"}'          '\[0]':x
+doPass "(s) in key"               '{"x(s)":100}'         'x\(s)':100
+doPass
+
 echo "--- Combining multiple concepts ---"
 doPass "Sample 1" \
        '{"a":{"b":[{"c":1,"d":4.3,"e":false},true,"x"],"x":null},"y":["100"],"z":"z"}' \
@@ -116,7 +119,9 @@ doFail "items in an array may not have a key"         [ a:1 ]
 doFail "cannot treat array as object"                 a[0]:1  a.x:2
 doFail "cannot treat object as array"                 a.x:2  a[0]:1
 doFail "array index is already set"                   a[0]:1  a[0]:2
+doFail "array index is already set"                   a[ 1 ]  a[0]:2
 doFail "object property is already set"               a.b:1  a.b:2
+doFail "object property is already set"               a{ b:1 }  a.b:2
 
 echo
 report_test_status

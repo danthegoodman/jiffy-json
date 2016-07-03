@@ -7,9 +7,9 @@ def main():
     import sys
 
     try:
-        args = parse_arguments(sys.argv[1:])
+        args = list(gen_arguments(sys.argv[1:]))
     except ArgumentError as e:
-        print("Error: " + e.message)
+        print("Error: {}".format(e.message))
         sys.exit(2)
 
     result = create_base_collection(args)
@@ -19,14 +19,15 @@ def main():
             a.fill_result(result)
         print(build_json_result(result))
     except JiffyError as e:
-        print("Error: " + e.message)
-        print("Argument: " + e.raw_arg)
-        print("State: " + build_json_result(result))
+        print("Error: {}".format(e.message))
+        print("Argument: {}".format(repr(e.argument)))
+        print("State: {}".format(build_json_result(result)))
         sys.exit(1)
 
 
-def parse_arguments(argv):
-    return [Argument(a) for a in argv]
+def gen_arguments(argv):
+    for a in argv:
+        yield Argument(a)
 
 
 def create_base_collection(args):
@@ -98,7 +99,7 @@ JsonNull = object()
 class JiffyError(Exception):
     def __init__(self, message, argument):
         super(JiffyError, self).__init__(message)
-        self.raw_arg = argument.raw
+        self.argument = argument
 
 
 class ArgumentError(Exception):
@@ -135,6 +136,9 @@ class Argument:
 
         item = self.path[-1]
         item.set_in_result(self, target)
+
+    def __repr__(self):
+        return self.raw
 
 
 class ArgPathArrayItem:
