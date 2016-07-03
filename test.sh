@@ -26,7 +26,6 @@ echo
 echo "--- Null ---"
 doPass "null"                 '{"a":null}'     a:null
 doPass "case sensitive"       '{"a":"Null"}'   a:Null
-doPass "explicitly string"    '{"a":"null"}'   'a(s)':null
 echo
 
 echo "--- Collection Literals ---"
@@ -34,13 +33,15 @@ doPass "empty object"         '{"a":{}}'       a:{}
 doPass "empty array"          '{"a":[]}'       a:[]
 echo
 
-echo "--- Explicit String ---"
-doPass "string"          '{"a":"hello"}'       'a(s)':hello
-doPass "integer"         '{"foo":"100"}'       'foo(s)':100
-doPass "boolean"         '{"bar":"true"}'      'bar(s)':true
-doPass "null"            '{"cat":"null"}'      'cat(s)':null
-doPass "empty object"    '{"dog":"{}"}'        'dog(s)':{}
-
+echo "--- String Cast ---"
+doPass "string"          '{"a":"hello"}'        a:hello@S
+doPass "integer"         '{"foo":"100"}'        foo:100@S
+doPass "boolean"         '{"bar":"true"}'       bar:true@S
+doPass "null"            '{"cat":"null"}'       cat:null@S
+doPass "empty object"    '{"dog":"{}"}'         dog:{}@S
+doPass "empty array"     '{"egg":"[]"}'         egg:[]@S
+doPass "different tag"   '{"a":"1@S","b":"2"}'  --string-cast @ a:1@S b:2@
+echo
 
 echo "--- Objects ---"
 doPass "simple"                   '{"x":"hello world"}'  x:'hello world'
@@ -95,16 +96,15 @@ echo "--- Escapes ---"
 doPass "colon in key"             '{"a:b":"x"}'          'a\:b':x
 doPass "dot in key"               '{"a.b":100}'          'a\.b':100
 doPass "escape array"             '{"[0]":"x"}'          '\[0]':x
-doPass "(s) in key"               '{"x(s)":100}'         'x\(s)':100
 doPass
 
 echo "--- Combining multiple concepts ---"
 doPass "Sample 1" \
        '{"a":{"b":[{"c":1,"d":4.3,"e":false},true,"x"],"x":null},"y":["100"],"z":"z"}' \
-       a.b[0].c:1  a.b[0].d:4.3  a.b[0].e:false  a.b[1]:true  a.b[2]:x  a.x:null  'y[0](s):100'  z:z
+       a.b[0].c:1  a.b[0].d:4.3  a.b[0].e:false  a.b[1]:true  a.b[2]:x  a.x:null  y[0]:100@S  z:z
 doPass "Sample 1 with builders" \
        '{"a":{"b":[{"c":1,"d":4.3,"e":false},true,"x"],"x":null},"y":["100"],"z":"z"}' \
-       a{ b[ { c:1  d:4.3  e:false } true x ] x:null } 'y[0](s):100'  z:z
+       a{ b[ { c:1  d:4.3  e:false } true x ] x:null } y[ 100@S ]  z:z
 echo
 
 #      expected error message                         invalid input
