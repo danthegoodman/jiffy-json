@@ -1,13 +1,16 @@
 #!/usr/bin/env python2.7
 import re
+import sys
 from collections import OrderedDict
+
+VERSION = '1.0.0'
 
 
 def main():
-    import sys
+    cli = parse_cli()
 
     try:
-        args = list(gen_arguments(sys.argv[1:]))
+        args = list(gen_arguments(cli.args))
     except ArgumentError as e:
         print("Error: {}".format(e.message))
         sys.exit(2)
@@ -212,6 +215,43 @@ class ArgPathObjectItem:
     def __repr__(self):
         return "PathObj({})".format(self.key)
 
+
+def parse_cli():
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Build JSON in a jiffy",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=build_epilog())
+    ap.add_argument('-v', '--version', action='version', version="jiffy-json "+VERSION)
+    ap.add_argument('args', nargs='...', help=argparse.SUPPRESS)
+    return ap.parse_args()
+
+
+def build_epilog():
+    # TODO document builder
+    from textwrap import dedent
+    #   Aim to keep the message within 70 characters
+    #   1234567890123456789012345678901234567890123456789012345678901234567890
+    return dedent("""\
+        Arguments are used to build the JSON result. They follow a few rules:
+        * Each argument is a colon separated path:value pair
+        * In the path,  .    may separate keys to form nested objects
+        * In the path,  [N]  may separate keys to form nested arrays
+          The N is an integer to add the value or nested object at that index.
+        * Values will be type-cast if possible. Appending  (s)  to the key
+          will prevent type-casting.
+
+        Examples:
+
+        %(prog)s foo.bar:"hello world"
+          {"foo":{"bar":"hello world"}}
+
+        %(prog)s abc:100 'def(s)':200
+          {"abc":100, "def":"200"}
+
+        %(prog)s l[0].a:1 l[0].b:2 l[1]:3
+          {"l":[{"a":1, "b":2}, 3]}
+        """)
 
 if __name__ == "__main__":
     main()
