@@ -30,8 +30,33 @@ def main():
 
 
 def gen_arguments(argv):
-    for a in argv:
-        yield Argument(a)
+    for raw in argv:
+        m = re.search(r'(?<!\\):', raw)
+        if not m:
+            raise ArgumentError("unable to parse argument: " + raw)
+
+        key = raw[0:m.start()]
+        value = raw[m.start() + 1:]
+        path = list(gen_path(key))
+
+        yield Argument(key, path, auto_cast(value))
+
+
+def gen_path(key):
+    arr_indices = [m.start() for m in re.finditer(r'(?<!\\)\[\d+]', key)]
+    lk = list(key)
+    for ndx in reversed(arr_indices):
+        if ndx != 0:
+            lk.insert(ndx, '.')
+    key = ''.join(lk)
+
+    parts = re.split(r'(?<!\\)\.', key)
+    for item in parts:
+        arr_match = re.match(r'^\[(\d+)\]$', item)
+        if arr_match:
+            yield ArgPathArrayItem(arr_match.group(1))
+        else:
+            yield ArgPathObjectItem(item)
 
 
 def create_base_collection(args):
@@ -78,14 +103,6 @@ def auto_cast(value):
         return value
 
 
-def argument_path_item(raw):
-    arr_match = re.match(r'^\[(\d+)\]$', raw)
-    if arr_match:
-        return ArgPathArrayItem(arr_match.group(1))
-    else:
-        return ArgPathObjectItem(raw)
-
-
 def build_json_result(obj):
     from json import JSONEncoder
 
@@ -114,21 +131,8 @@ class ArgumentError(Exception):
 
 
 class Argument:
-    def __init__(self, raw):
-        m = re.search(r'(?<!\\):', raw)
-        if not m:
-            raise ArgumentError("unable to parse argument: " + raw)
-
-        key = raw[0:m.start()]
-        key = re.sub(r'([^\\])(\[\d*])', r'\1.\2', key)
-
-        value = raw[m.start() + 1:]
-        value = auto_cast(value)
-
-        parts = re.split(r'(?<!\\)\.', key)
-        path = [argument_path_item(item) for item in parts]
-
-        self.raw = raw
+    def __init__(self, raw_key, path, value):
+        self.raw_key = raw_key
         self.path = path
         self.value = value
 
@@ -141,12 +145,12 @@ class Argument:
         item.set_in_result(self, target)
 
     def __repr__(self):
-        return self.raw
+        return '{}:{}'.format(self.raw_key, repr(self.value))
 
 
 class ArgPathArrayItem:
     def __init__(self, ndx):
-        self.ndx = int(ndx) if ndx else None
+        self.ndx = int(ndx)
 
     def create_collection(self):
         return []
