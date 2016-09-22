@@ -9,40 +9,127 @@ STRING_CAST_TAG = "@S"
 
 def main():
     cli = parse_cli()
+    args = parse_arguments(cli.args)
+    result = build_result(args)
+    print(result_as_json(result))
 
+
+# #################### Argument Parsing #################### #
+
+
+class ArgumentError(Exception):
+    def __init__(self, message):
+        super(ArgumentError, self).__init__(message)
+
+
+def parse_arguments(argv):
     try:
-        args = list(gen_arguments(cli.args))
+        return list(_gen_arguments(argv))
     except ArgumentError as e:
         print("Error: {}".format(e.message))
         sys.exit(2)
 
-    result = create_base_collection(args)
 
-    try:
-        for a in args:
-            a.fill_result(result)
-        print(build_json_result(result))
-    except JiffyError as e:
-        print("Error: {}".format(e.message))
-        print("Argument: {}".format(repr(e.argument)))
-        print("State: {}".format(build_json_result(result)))
-        sys.exit(1)
+class ArgumentContext:
+    def __init__(self, path, is_object, is_implicit=False):
+        self.path = path
+        self.is_object = is_object
+        self.is_implicit = is_implicit
+        self.ndx = 0
 
 
-def gen_arguments(argv):
-    for raw in argv:
+def _gen_arguments(argv):
+    context_stack = []
+    for ndx, raw in enumerate(argv):
+        curr_stack = context_stack[-1] if context_stack else None
+        if raw == '}':
+            if not curr_stack:
+                raise ArgumentError("cannot close object builder; none to close: Argument #{}".format(ndx))
+            if not curr_stack.is_object:
+                raise ArgumentError("cannot close object builder; in array builder: Argument #{}".format(ndx))
+            context_stack.pop()
+            continue
+
+        if raw == ']':
+            if not context_stack:
+                raise ArgumentError("cannot close array builder; none to close: Argument #{}".format(ndx))
+            if curr_stack.is_object:
+                raise ArgumentError("cannot close array builder; in object builder: Argument #{}".format(ndx))
+            context_stack.pop()
+            continue
+
         m = re.search(r'(?<!\\):', raw)
-        if not m:
-            raise ArgumentError("unable to parse argument: " + raw)
+        if m:
+            if not curr_stack:
+                curr_stack = ArgumentContext([], True, is_implicit=True)
+                context_stack.append(curr_stack)
 
-        key = raw[0:m.start()]
-        value = raw[m.start() + 1:]
-        path = list(gen_path(key))
+            if not curr_stack.is_object:
+                raise ArgumentError("items in an array may not have a key: {}".format(raw))
 
-        yield Argument(key, path, auto_cast(value))
+            key = raw[0:m.start()]
+            value = raw[m.start() + 1:]
+            path = curr_stack.path + list(_gen_path(key))  # TODO edge case: a{ [0]:1 }
+
+            yield Argument(key, path, _auto_cast(value))
+            continue
+
+        m = re.search(r'(?<!\\)\{$', raw)
+        if m:
+            path = curr_stack.path if curr_stack else []
+
+            key = raw[0:m.start()]
+            if not key:
+                if curr_stack:
+                    if curr_stack.is_object:
+                        raise ArgumentError("items in an object require a key and value: " + raw)
+                    else:
+                        path = path + [ArgPathArrayItem(curr_stack.ndx)]
+                        curr_stack.ndx += 1
+            if key:
+                if curr_stack and not curr_stack.is_object:
+                    raise ArgumentError("items in an array may not have a key: " + raw)
+
+                path = path + list(_gen_path(key))
+            context_stack.append(ArgumentContext(path, True))
+            continue
+
+        m = re.search(r'(?<!\\)\[$', raw)
+        if m:
+            path = curr_stack.path if curr_stack else []
+            key = raw[0:m.start()]
+            if not key:
+                if curr_stack:
+                    if curr_stack.is_object:
+                        raise ArgumentError("items in an object require a key and value: " + raw)
+                    else:
+                        path = path + [ArgPathArrayItem(curr_stack.ndx)]
+                        curr_stack.ndx += 1
+            else:
+                if curr_stack and not curr_stack.is_object:
+                    raise ArgumentError("items in an array may not have a key: " + raw)
+
+                path = path + list(_gen_path(key))
+            context_stack.append(ArgumentContext(path, False))
+            continue
+
+        if not curr_stack or curr_stack.is_object:
+            raise ArgumentError("items in an object require a key and value: " + raw)
+
+        path = curr_stack.path + [ArgPathArrayItem(curr_stack.ndx)]
+        yield Argument(None, path, _auto_cast(raw))
+        curr_stack.ndx += 1
+
+    if context_stack:
+        curr_stack = context_stack[-1]
+        if curr_stack.is_object:
+            if not curr_stack.is_implicit:
+                raise ArgumentError("object builder is unclosed")
+        else:
+            raise ArgumentError("array builder is unclosed")
 
 
-def gen_path(key):
+def _gen_path(key):
     arr_indices = [m.start() for m in re.finditer(r'(?<!\\)\[\d+]', key)]
     lk = list(key)
     for ndx in reversed(arr_indices):
@@ -59,30 +146,7 @@ def gen_path(key):
             yield ArgPathObjectItem(item)
 
 
-def create_base_collection(args):
-    if len(args):
-        return args[0].path[0].create_collection()
-    else:
-        return OrderedDict()
-
-
-def json_type(target):
-    if target is JsonNull:
-        return "null"
-    if target is True or target is False:
-        return "bool"
-    if isinstance(target, list):
-        return "array"
-    if isinstance(target, dict):
-        return "object"
-    if isinstance(target, (int, float, long)):
-        return "number"
-    if isinstance(target, str):
-        return "string"
-    return type(target)
-
-
-def auto_cast(value):
+def _auto_cast(value):
     if value.endswith(STRING_CAST_TAG):
         return value[:-len(STRING_CAST_TAG)]
     if value == "[]":
@@ -103,21 +167,7 @@ def auto_cast(value):
         return value
 
 
-def build_json_result(obj):
-    from json import JSONEncoder
-
-    def default(o):
-        if o is JsonNull:
-            return None
-        raise TypeError(repr(o) + " is not JSON serializable")
-
-    encoder = JSONEncoder(separators=(',', ':'), default=default)
-    return encoder.encode(obj)
-
-
-# We use None to track unset values.
-JsonNull = object()
-
+# #################### Result Builder #################### #
 
 class JiffyError(Exception):
     def __init__(self, message, argument):
@@ -125,9 +175,25 @@ class JiffyError(Exception):
         self.argument = argument
 
 
-class ArgumentError(Exception):
-    def __init__(self, message):
-        super(ArgumentError, self).__init__(message)
+def build_result(args):
+    if not args:
+        return OrderedDict()
+
+    result = args[0].path[0].create_collection()
+
+    try:
+        for a in args:
+            a.fill_result(result)
+        return result
+    except JiffyError as e:
+        print("Error: {}".format(e.message))
+        print("Argument: {}".format(str(e.argument)))
+        print("State: {}".format(result_as_json(result)))
+        sys.exit(1)
+
+
+# We use None to track unset values
+JsonNull = object()
 
 
 class Argument:
@@ -144,8 +210,14 @@ class Argument:
         item = self.path[-1]
         item.set_in_result(self, target)
 
+    def __str__(self):
+        if self.raw_key is None:
+            return repr(self.value)
+        else:
+            return '{}:{}'.format(self.raw_key, repr(self.value))
+
     def __repr__(self):
-        return '{}:{}'.format(self.raw_key, repr(self.value))
+        return '<{}>:{}'.format(','.join(map(repr, self.path)), repr(self.value))
 
 
 class ArgPathArrayItem:
@@ -156,8 +228,8 @@ class ArgPathArrayItem:
         return []
 
     def next_target(self, argument, target, next_item):
-        if json_type(target) != 'array':
-            raise JiffyError("cannot treat {} as array".format(json_type(target)), argument)
+        if _json_type(target) != 'array':
+            raise JiffyError("cannot treat {} as array".format(_json_type(target)), argument)
 
         if self.ndx is None:
             raise JiffyError("push syntax can only be used at end of path", argument)
@@ -171,8 +243,8 @@ class ArgPathArrayItem:
         return target[self.ndx]
 
     def set_in_result(self, argument, target):
-        if json_type(target) != 'array':
-            raise JiffyError("cannot treat {} as array".format(json_type(target)), argument)
+        if _json_type(target) != 'array':
+            raise JiffyError("cannot treat {} as array".format(_json_type(target)), argument)
 
         target_ndx = self.ndx
         if target_ndx is None:
@@ -187,7 +259,7 @@ class ArgPathArrayItem:
         target[target_ndx] = argument.value
 
     def __repr__(self):
-        return "PathArr({})".format(self.ndx)
+        return "PArr({})".format(self.ndx)
 
 
 class ArgPathObjectItem:
@@ -200,8 +272,8 @@ class ArgPathObjectItem:
         return OrderedDict()
 
     def next_target(self, argument, target, next_item):
-        if json_type(target) != 'object':
-            raise JiffyError("cannot treat {} as object".format(json_type(target)), argument)
+        if _json_type(target) != 'object':
+            raise JiffyError("cannot treat {} as object".format(_json_type(target)), argument)
 
         if self.key not in target:
             target[self.key] = next_item.create_collection()
@@ -209,15 +281,49 @@ class ArgPathObjectItem:
         return target[self.key]
 
     def set_in_result(self, argument, target):
-        if json_type(target) != 'object':
-            raise JiffyError("cannot treat {} as object".format(json_type(target)), argument)
+        if _json_type(target) != 'object':
+            raise JiffyError("cannot treat {} as object".format(_json_type(target)), argument)
 
         if self.key in target:
             raise JiffyError("object property is already set", argument)
         target[self.key] = argument.value
 
     def __repr__(self):
-        return "PathObj({})".format(self.key)
+        return "PObj({})".format(self.key)
+
+
+def _json_type(target):
+    if target is JsonNull:
+        return "null"
+    if target is True or target is False:
+        return "bool"
+    if isinstance(target, list):
+        return "array"
+    if isinstance(target, dict):
+        return "object"
+    if isinstance(target, (int, float, long)):
+        return "number"
+    if isinstance(target, str):
+        return "string"
+    return type(target)
+
+
+# #################### Output #################### #
+
+
+def result_as_json(obj):
+    from json import JSONEncoder
+
+    def default(o):
+        if o is JsonNull:
+            return None
+        raise TypeError(repr(o) + " is not JSON serializable")
+
+    encoder = JSONEncoder(separators=(',', ':'), default=default)
+    return encoder.encode(obj)
+
+
+# #################### CLI and Help #################### #
 
 
 def parse_cli():
@@ -226,7 +332,7 @@ def parse_cli():
     ap = argparse.ArgumentParser(
         description="Build JSON in a jiffy",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=build_epilog())
+        epilog=build_help_text())
     ap.add_argument('-v', '--version', action='version', version="jiffy-json " + VERSION)
     ap.add_argument('--string-cast', nargs=1, metavar='TAG', default=[STRING_CAST_TAG],
                     help='Specifies the value suffix which forces the value '
@@ -239,7 +345,7 @@ def parse_cli():
     return result
 
 
-def build_epilog():
+def build_help_text():
     # TODO document builder
     from textwrap import dedent
     #   Aim to keep the message within 70 characters

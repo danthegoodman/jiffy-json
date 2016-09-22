@@ -17,7 +17,9 @@ doPass(){
     if [[ 0 -ne $JJ_EXIT ]]; then
         echo "$(cRED 'error') $NAME"
         echo " Command exited with code $JJ_EXIT"
+        echo " Input: $@"
         echo " $(cRED "$ACTUAL")"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     elif [[ "$ACTUAL" != "$EXPECTED" ]]; then
         echo "$(cRED 'fail ') $NAME"
         echo " Expected: $(cYELLOW "$EXPECTED")"
@@ -39,11 +41,14 @@ doFail(){
     if [[ 0 -eq $JJ_EXIT ]]; then
         echo "$(cRED 'error') $EXPECTED_ERROR"
         echo " Expected error but command completed"
+        echo " Input: $@"
         echo " Result: `tput setaf 1`$ACTUAL`tput sgr0`"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     elif [[ "$ACTUAL" != "Error: ${EXPECTED_ERROR}"* ]]; then
         echo "$(cRED 'fail ') $EXPECTED_ERROR"
         echo " Received incorrect error message"
         echo " $(cRED "$ACTUAL")"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     else
         echo "$(cGREEN 'ok   ') $EXPECTED_ERROR"
     fi
